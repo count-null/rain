@@ -3,28 +3,38 @@ import time
 import hmac
 import hashlib
 from json import dumps
+from config import SwapMethod
+from notify import Logger
+
+BASE_URL = "https://www.livingroomofsatoshi.com"
 
 
 def create_wos_account():
-    base_url = "https://www.livingroomofsatoshi.com"
     ext = "/api/v1/wallet/account"
     data = {
         "referrer": "walletofsatoshi"
     }
-    json = requests.post(base_url + ext, json=data).json()
+    json = requests.post(BASE_URL + ext, json=data).json()
     print(dumps(json, indent=2))
 
 
-class Wos:
-    def __init__(self, WOS_CRED, log):
+class WosCreds:
+    def __init__(self, creds: dict):
+        self.api_secret = creds['api_secret']
+        self.api_token = creds['api_token']
+        self.btc_deposit_address = creds['btc_deposit_address']
+        self.lightning_address = creds['lightning_address']
+
+
+class Wos(SwapMethod):
+    def __init__(self, creds: WosCreds, log: Logger):
         self.session = requests.Session()
-        self.base_url = "https://www.livingroomofsatoshi.com"
-        self.wallet = WOS_CRED
-        self.session.headers.update({"api-token": self.wallet["apiToken"]})
+        self.creds = creds
+        self.session.headers.update({"api-token": self.creds.api_token})
         print(self.get_account_balance())
 
     def wos_request(self, ext, data_str: str, sign: bool):
-        path_url = self.base_url + ext
+        path_url = BASE_URL + ext
         if sign and data_str:
             self.sign_session(ext, data_str)
         resp_json = self.session.post(path_url, data=data_str.encode("utf-8")).json()
@@ -33,8 +43,8 @@ class Wos:
 
     def sign_session(self, ext, params):
         nonce = str(int(time.time() * 1000))
-        api_token = self.wallet["apiToken"]
-        api_secret = self.wallet["apiSecret"]
+        api_token = self.creds.api_token
+        api_secret = self.creds.api_secret
 
         m = ext + nonce + api_token + params
         hmac_key = api_secret.encode("utf-8")
@@ -51,13 +61,13 @@ class Wos:
         self.session.headers.pop("nonce", None)
 
     def get_onchain_address(self):
-        return self.wallet["btcDepositAddress"]
+        return self.creds.btc_deposit_address
 
     def get_account_balance(self):
         ext = "/api/v1/wallet/walletData"
-        json = self.session.get(self.base_url + ext).json()
+        json = self.session.get(BASE_URL + ext).json()
         _sum = sum(map(float, [json[kwarg] for kwarg in ["btc", "lightning", "btcUnconfirmed"]]))
-        return json["btc"], json["lightning"], json["btcUnconfirmed"]
+        return int(json["btc"]) + int(json["lightning"]) + int(json["btcUnconfirmed"])
 
     def pay_invoice(self, invoice: str, amount_btc: float):
         ext = "/api/v1/wallet/payment"
@@ -80,7 +90,7 @@ class Wos:
             "address": "34c5izdES7Wt4x38SEfnUCVtoNj6F2wPPe",
             "amount": 0
         }
-        resp_json = self.session.get(self.base_url + ext, params=params).json()
+        resp_json = self.session.get(BASE_URL + ext, params=params).json()
         return resp_json["btcFixedFee"]
 
     def send_onchain(self, address: str, amount_btc: float):

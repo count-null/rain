@@ -6,19 +6,26 @@ import requests
 import json
 from hashlib import sha256
 import sys
+from config import SwapMethod
+from notify import Logger
 
 COIN_SATS = 100_000_000
 MAX_LN_DEPOSIT = 15_000_000
 MIN_LN_DEPOSIT = 1_001
 
 
-class Nicehash:
-    def __init__(self, NH_CONFIG, log):
+class NicehashCreds:
+    def __init__(self, creds: dict):
+        self.api_key = creds['api_key']
+        self.api_secret = creds['api_secret']
+        self.org_id = creds['org_id']
+        self.funding_key = creds['funding_key']
+
+
+class Nicehash(SwapMethod):
+    def __init__(self, creds: NicehashCreds, log: Logger):
         self.log = log
-        self.key = NH_CONFIG['api_key']
-        self.secret = NH_CONFIG['api_secret']
-        self.organisation_id = NH_CONFIG['org_id']
-        self.funding_key = NH_CONFIG['funding_key']
+        self.creds = creds
         self.host = "https://api2.nicehash.com"
         self.log_msg_map = {
             "get_onchain_address": lambda addr: f"nicehash deposit address: {addr}",
@@ -33,14 +40,14 @@ class Nicehash:
     def nicehash_request(self, method, path, query, body):
         xtime = self.get_epoch_ms_from_now()
         xnonce = str(uuid.uuid4())
-        message = bytearray(self.key, 'utf-8')
+        message = bytearray(self.creds.api_key, 'utf-8')
         message += bytearray('\x00', 'utf-8')
         message += bytearray(str(xtime), 'utf-8')
         message += bytearray('\x00', 'utf-8')
         message += bytearray(xnonce, 'utf-8')
         message += bytearray('\x00', 'utf-8')
         message += bytearray('\x00', 'utf-8')
-        message += bytearray(self.organisation_id, 'utf-8')
+        message += bytearray(self.creds.org_id, 'utf-8')
         message += bytearray('\x00', 'utf-8')
         message += bytearray('\x00', 'utf-8')
         message += bytearray(method, 'utf-8')
@@ -53,14 +60,14 @@ class Nicehash:
             message += bytearray('\x00', 'utf-8')
             message += bytearray(body_json, 'utf-8')
 
-        digest = hmac.new(bytearray(self.secret, 'utf-8'), message, sha256).hexdigest()
-        xauth = self.key + ":" + digest
+        digest = hmac.new(bytearray(self.creds.api_secret, 'utf-8'), message, sha256).hexdigest()
+        xauth = self.creds.api_key + ":" + digest
         headers = {
             'X-Time': str(xtime),
             'X-Nonce': xnonce,
             'X-Auth': xauth,
             'Content-Type': 'application/json',
-            'X-Organization-Id': self.organisation_id,
+            'X-Organization-Id': self.creds.org_id,
             'X-Request-Id': str(uuid.uuid4())
         }
         s = requests.Session()
@@ -100,13 +107,13 @@ class Nicehash:
         body = {
             "currency": "BTC",
             "amount": amt,
-            "withdrawalAddressId": self.funding_key
+            "withdrawalAddressId": self.creds.funding_key
         }
         res = self.nicehash_request("POST", "/main/api/v2/accounting/withdrawal", '', body)
         self.log.info(self.log_msg_map['send_onchain'](sats))
         return res
 
-    def get_onchain_fee(self, sats):
+    def estimate_onchain_fee(self, sats):
         res = self.nicehash_request("GET", "/main/api/v2/public/service/fee/info", '', None)
         fee = int(float(res['withdrawal']['BITGO']['rules']['BTC']['intervals'][0]['element']['sndValue']) * COIN_SATS)
         self.log.info(self.log_msg_map['get_onchain_fee'](sats, fee))
@@ -130,10 +137,6 @@ class Nicehash:
         balance = int(float(res['available']) * COIN_SATS)
         self.log.info(self.log_msg_map['get_account_balance'](balance))
         return balance
-
-    def pay_invoice(self, invoice_code):
-        # TODO nicehash needs to implement paying invoices
-        return
 
     def send_to_acct(self, sats, node):
         # generate multiple invoices if needed

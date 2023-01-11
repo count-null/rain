@@ -1,13 +1,13 @@
 import logging
-from telegram import Telegram
+from telegram import Telegram, TelegramCreds
 
 
 class Logger:
-    def __init__(self, filename, notify_config):
+    def __init__(self, filename: str, notify_creds: TelegramCreds):
         logging.basicConfig(filename=filename, filemode='a', format='[%(asctime)s] %(levelname)-8s %(message)s') 
         self.log = logging.getLogger()
         self.log.setLevel(logging.INFO)
-        self.notify_connector = Telegram(notify_config, self)
+        self.notify_connector = Telegram(notify_creds, self)
         self.filename = filename
 
     def info(self, message):

@@ -1,6 +1,8 @@
 from ppadb.client import Client as AdbClient
 from time import sleep
 from bs4 import BeautifulSoup as bs
+from config import SwapMethod
+from notify import Logger
 
 
 def parse_bounds(bounds_str):
@@ -11,8 +13,14 @@ def get_midpoint(bounds):
     return [(c1 + c2) / 2 for c1, c2 in zip(*bounds)]
 
 
-class Muun:
-    def __init__(self, MUUN_CRED, log):
+class MuunCreds:
+    def __init__(self, creds: dict):
+        self.device_name = creds['device_name']
+        self.widthdraw_address = creds['widthdraw_address']
+
+
+class Muun(SwapMethod):
+    def __init__(self, creds: MuunCreds, log: Logger):
         self.log = log
         self.log_msg_map = {
             "get_onchain_address": lambda addr: f"muun deposit address: {addr}",
@@ -25,19 +33,12 @@ class Muun:
         }
         # connect to self.device
         client = AdbClient()
-        # self.devices = client.devices()
-
-        # self.device = client.device("R58M47ZGS2Z")
-        self.address = MUUN_CRED["withdraw_address"]
-        self.device = client.device(MUUN_CRED["device_name"])
+        self.address = creds.widthdraw_address
+        self.device = client.device(creds.device_name)
         if self.init_wallet():
             # change the denominated amount!!
             self.change_denomination()
             self.get_backup_key()
-        # elif self.delete_wallet():
-        #     self.init_wallet()
-        #     self.change_denomination()
-        #     self.get_backup_key()
         else:
             print("wallet initialized")
 
@@ -58,21 +59,6 @@ class Muun:
         self.device.input_text(sat_per_vbyte)
         self.tap(element_dict["confirm-fee"])
         self.tap(element_dict["send-btn"])
-
-    def get_onchain_fee(self, sats):
-        return
-
-    def get_pending_send_sats(self):
-        return
-
-    def get_recent_sends(self):
-        return
-
-    def pay_invoice(self, invoice_code):
-        return
-
-    def send_to_acct(self, sats, node):
-        return
 
     def get_screen_layout(self):
         xml_dump = self.device.shell(
@@ -229,29 +215,6 @@ class Muun:
         return transaction
 
 
-#def main():
-    # connect to the wallet
-    #wallet = Muun(CREDS["MUUN"], LISTEN_LOG)
-    # while True:
-    #     # check if at create wallet screen
-    #     if wallet.init_wallet():
-    #         # change the denominated amount!!
-    #         wallet.change_denomination()
-    #         wallet.get_backup_key()
-    #         break
-    #     else:  # otherwise, check balance
-    #         balance = wallet.get_account_balance()
-    #         if balance == 0:
-    #             print("Balance is 0...")
-    #             wallet.delete_wallet()
-    #         else:
-    #             break
-    # print(wallet.get_lightning_invoice(1000))
-    # ###wait for payment....
-    # print(wallet.send_onchain(1))
-    # print(wallet.get_transaction_id())
-
-
 element_dict = {
     "balance": {"resource-id": "io.muun.apollo:id/balance_main_currency_amount"},
     "settings": {"resource-id": "io.muun.apollo:id/settings_fragment"},
@@ -288,5 +251,3 @@ element_dict = {
     "payment": {"text": "You paid", "resource-id": "io.muun.apollo:id/home_operations_item_title"},
     "payment-detail": {"resource-id": "io.muun.apollo:id/operation_detail_item_text_content"}
 }
-# if __name__ == '__main__':
-#    main()

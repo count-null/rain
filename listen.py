@@ -1,22 +1,20 @@
 from threading import Thread
-from config import LISTEN, CREDS, node_map, listen_map
-from notify import Logger
+from config import LISTEN_CONFIG, CREDS, LISTEN_LOG, listen_map
+from lnd import Lnd, LndCreds
 
 
 def main():
-    DEFAULT = LISTEN['DEFAULT']
+    LISTEN_LOG.info("Running...")
 
-    log = Logger("logs/monitor.log", CREDS['TELEGRAM'])
-    log.info("Running...")
-
-    node = node_map[DEFAULT['node']](CREDS[DEFAULT['node']], log)
+    lnd_creds = LndCreds(grpc_host=CREDS['LND']['grpc_host'], tls_cert_path=CREDS['LND']['tls_cert_path'], macaroon_path=CREDS['LND']['tls_cert_path'])
+    node = Lnd(lnd_creds, LISTEN_LOG)
 
     thread_pool = []
 
-    for key in LISTEN:
+    for key in LISTEN_CONFIG:
         if key != 'DEFAULT':
-            if LISTEN[key]['execute'] == "1":
-                daemon = listen_map[key](config=LISTEN[key], CREDS=CREDS, node=node, log=log)
+            if LISTEN_CONFIG[key]['execute'] == "1":
+                daemon = listen_map[key](config=LISTEN_CONFIG[key], CREDS=CREDS, node=node, log=log)
                 thread_pool.append(Thread(target=daemon.mainLoop))
 
     for thread in thread_pool:

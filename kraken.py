@@ -5,19 +5,26 @@ import urllib.parse
 import hashlib
 import hmac
 import base64
+from config import SwapMethod
+from notify import Logger
 
 COIN_SATS = 100_000_000
 MIN_LN_DEPOSIT = 1000
 MAX_LN_DEPOSIT = COIN_SATS
 
 
-class Kraken:
-    def __init__(self, KRAKEN_CONFIG, logger):
-        self.log = logger
+class KrakenCreds:
+    def __init__(self, creds: dict):
+        self.api_key = creds['api_key']
+        self.api_secret = creds['api_secret']
+        self.funding_key = creds['funding_key']
+
+
+class Kraken(SwapMethod):
+    def __init__(self, creds: KrakenCreds, log: Logger):
+        self.log = log
         self.api_url = "https://api.kraken.com/"
-        self.api_key = KRAKEN_CONFIG['api_key']
-        self.api_secret = KRAKEN_CONFIG['api_secret']
-        self.funding_key = KRAKEN_CONFIG['funding_key']
+        self.creds = creds
         self.log_msg_map = {
             "get_onchain_address": lambda addr: f"kraken deposit address: {addr}",
             "send_onchain": lambda sats: f"kraken initiated {sats} sat widthdrawl",
@@ -48,11 +55,11 @@ class Kraken:
 
     def kraken_request(self, uri_path, data):
         headers = {}
-        headers['API-Key'] = self.api_key
+        headers['API-Key'] = self.creds.api_key
         headers['API-Sign'] = self.get_kraken_signature(
             uri_path,
             data,
-            self.api_secret
+            self.creds.api_secret
         )
         req = requests.post(
             (self.api_url + uri_path),
@@ -78,18 +85,18 @@ class Kraken:
         payload = {
             "nonce": str(int(1000*time.time())),
             "asset": "XBT",
-            "key": self.funding_key,
+            "key": self.creds.funding_key,
             "amount": sats / COIN_SATS
         }
         res = self.kraken_request('/0/private/Withdraw', payload)
         self.log.info(self.log_msg_map['send_onchain'](sats))
         return res
 
-    def get_onchain_fee(self, sats):
+    def estimate_onchain_fee(self, sats):
         payload = {
             "nonce": str(int(1000*time.time())),
             "asset": "XBT",
-            "key": self.funding_key,
+            "key": self.creds.funding_key,
             "amount": sats / COIN_SATS
         }
         res = self.kraken_request('/0/private/WithdrawInfo', payload)

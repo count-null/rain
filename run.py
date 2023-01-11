@@ -1,14 +1,17 @@
 import argparse
-from accounting import Accounting
-from config import CREDS, RUN_LOG
+from wos import create_wos_account
 
-parser = argparse.ArgumentParser(description="Tools for making it rain")
 
-# Add a positional argument
-parser.add_argument("sync", type=bool, help="Sync historical accounting data")
+def main():
+    parser = argparse.ArgumentParser(description="Tools for making it rain")
+    parser.add_argument('command', help='Command to run')
+    parser.add_argument('value', help='Value for the command')
+    args = parser.parse_args()
 
-# Parse the arguments
-args = parser.parse_args()
-if args.sync:
-    acc = Accounting(CREDS, RUN_LOG)
-    acc.sync_history(progress=True)
+    if args.command == 'init':
+        if args.value == 'wos':
+            create_wos_account()
+
+
+if __name__ == '__main__':
+    main()

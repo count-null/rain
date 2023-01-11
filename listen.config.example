@@ -1,6 +1,3 @@
-[DEFAULT]
-node = LND
-
 [HTLC_STREAM_LOGGER]
 # Listen for payment attempts attempting routes into your node
 #    detect probes, get notified for successful routing events
@@ -9,13 +6,6 @@ execute = 1
 log_to_console = 1
 notify_events = forwards
 csv_file = csv/htlcstream.csv
-
-[TELEGRAM_ACTIONS]
-execute = 1
-daily_report = 0 # reports are broken 
-daily_report_hour = 17
-daily_report_min = 0
-actions = invoice report
 
 [MEMPOOL_NOTIFY]
 execute = 0

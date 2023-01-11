@@ -1,0 +1,78 @@
+# 
+# Automated Channel Management
+#
+# use this file to describe the arrangement of channels for this node
+# set the budget for each peer and the number of channels to maintain
+# classify a node as a sink/source for active balance management
+
+[EXAMPLE_SINK_NODE_CHANNEL_AUTOMATION]
+execute = 1
+strategy = sink  # activates the sink channel balancer
+
+# public key and host of the sink node for this automation
+pubkey = 021c97a90a411ff2b10dc2a8e32de2f29d2fa49d41bfbb52bd416e460db0747d0d
+host = 44.228.158.82:9735
+
+# number of sats to commit to each sink channel
+capacity = 30_000_000
+
+# number of channels to maintain with the sink node
+num_channels = 3
+
+# when the sink drains to this ratio of local balance to total capacity
+#    try to close the channel. The automation will attempt to open another to replace it
+#    e.x. 0.05 will close the channel when 95% of sats have been pushed to other side
+#    to never close the channel, set to 0.00
+close_ratio = 0.05
+
+# set channel policy details
+base_fee = 0 
+fee_ppm = 555
+cltv_delta = 144
+min_htlc_sat = 100_000
+
+# the onchain fee priority as recommended by your mempool connection
+#     options: minimumFee|economyFee|hourFee|halfHourFee|fastestFee
+mempool_fee_rec = fastestFee
+
+# a factor to multiply the sat/vbyte fee returned from mempool_fee_rec above
+#     e.x. to outbid the next block by 5% use 1.05 with fastestFee
+mempool_fee_factor = 1.00
+
+# specify the maximimum sat/vbyte fee to pay if the calculated fee is higher than this,
+#     the operator will get a telegram notice and no action will be taken
+max_sat_per_vbyte = 100
+
+
+[EXAMPLE_SOURCE_NODE_AUTOMATION]
+execute = 1
+strategy = source  # activates the source channel balancer
+
+# public key and host of the sink node for this automation
+pubkey = 02f1a8c87607f415c8f22c00593002775941dea48869ce23096af27b0cfdcc0b69
+host = 52.13.118.208:9735
+
+capacity = 90_000_000
+num_channels = 1
+
+base_fee = 0
+fee_ppm = 1
+cltv_delta = 144
+min_htlc_sat = 100_000
+
+# source nodes need a swap method to create inbound
+#    options: KRAKEN|NICEHASH|MUUN|WOS
+swap_method = KRAKEN
+
+# initiate an LN transfer to swap_method when this many sats are found locally in any source channel
+loop_out_amount = 10_000_000
+
+# retry sending a loop-out with lower amount until success
+loop_out_backoff = 0.92
+
+# initiate an onchain withdraw when the account balance exceeds this number of sats
+max_account_balance = 50_000_000
+
+mempool_fee_rec = fastestFee
+mempool_fee_factor = 1.00
+max_sat_per_vbyte = 100

@@ -5,6 +5,7 @@ import sys
 import re
 from grpc_generated import rpc_pb2_grpc as lnrpc, rpc_pb2 as ln
 from grpc_generated import router_pb2_grpc as routerrpc, router_pb2 as router
+from notify import Logger
 
 MESSAGE_SIZE_MB = 50 * 1024 * 1024
 SAT_MSATS = 1000
@@ -36,20 +37,23 @@ class ChannelTemplate:
         )
 
 
-class Lnd:
-    def __init__(self, LND_NODE_CONFIG, logger):
-        self.log = logger
-        grpc_host = LND_NODE_CONFIG['grpc_host']
-        tls_cert_path = LND_NODE_CONFIG['tls_cert_path']
-        macaroon_path = LND_NODE_CONFIG['macaroon_path']
+class LndCreds:
+    def __init__(self, grpc_host: str, tls_cert_path: str, macaroon_path: str):
+        self.grpc_host = grpc_host
+        self.tls_cert_path = tls_cert_path
+        self.macaroon_path = macaroon_path
 
+
+class Lnd:
+    def __init__(self, creds: LndCreds, log: Logger):
+        self.log = log
         os.environ['GRPC_SSL_CIPHER_SUITES'] = 'HIGH+ECDSA'
-        combined_credentials = self.get_credentials(tls_cert_path, macaroon_path)
+        combined_credentials = self.get_credentials(creds.tls_cert_path, creds.macaroon_path)
         channel_options = [
             ('grpc.max_message_length', MESSAGE_SIZE_MB),
             ('grpc.max_receive_message_length', MESSAGE_SIZE_MB)
         ]
-        grpc_channel = grpc.secure_channel(grpc_host, combined_credentials, channel_options)
+        grpc_channel = grpc.secure_channel(creds.grpc_host, combined_credentials, channel_options)
         self.stub = lnrpc.LightningStub(grpc_channel)
         self.routerstub = routerrpc.RouterStub(grpc_channel)
         self.graph = None

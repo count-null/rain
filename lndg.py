@@ -1,5 +1,7 @@
 import requests
 import json
+from mempool import Mempool
+from notify import Logger
 
 
 class RecordList:
@@ -25,13 +27,18 @@ class RecordList:
         return self
 
 
+class LndgCreds:
+    def __init__(self, creds: dict):
+        self.auth_user = creds['auth_user']
+        self.auth_pass = creds['auth_pass']
+        self.api_url = creds['api_url']
+
+
 class Lndg:
-    def __init__(self, config, mempool, log):
+    def __init__(self, creds: LndgCreds, mempool: Mempool, log: Logger):
         self.log = log
         self.mempool = mempool
-        self.auth_user = config['auth_user']
-        self.auth_pass = config['auth_pass']
-        self.api_url = config['api_url']
+        self.creds = creds
         self.invoices = RecordList()
         self.payments = RecordList()
         self.onchain = RecordList()
@@ -39,14 +46,14 @@ class Lndg:
         self.forwards = RecordList()
 
     def lndg_request(self, url, acc):
-        req = requests.get(url, auth=(self.auth_user, self.auth_pass))
+        req = requests.get(url, auth=(self.creds.auth_user, self.creds.auth_pass))
         res = json.loads(req.content)
         acc.list.extend(res['results'])
         if res['next']:
             self.lndg_request(res['next'], acc)
 
     def get_url(self, endpoint):
-        return f"{self.api_url}{endpoint}/?format=json"
+        return f"{self.creds.api_url}{endpoint}/?format=json"
 
     def get_invoices(self):
         self.lndg_request(self.get_url('invoices'), self.invoices)

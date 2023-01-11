@@ -1,169 +1,138 @@
 import unittest
-from strategies import SinkSource
+from channels import ChannelState, SinkNodeConfig, SinkNodeState, SinkNodeManager, SourceNodeConfig, SourceNodeState, SourceNodeManager
+from config import SwapMethod
 
 
-class TestSinkSourceStrategy(unittest.TestCase):
+class TestSinkChannelManager(unittest.TestCase):
+    def __init__(self):
+        self.test_sink_config = SinkNodeConfig(
+            config={
+                'pubkey': 'testpubkeyanythingworkscauseitsatest',
+                'host': '127.0.0.1:9385',
+                'capacity': 100_000_000,
+                'num_channels': 3,
+                'close_ratio': 0.05,
+                'base_fee': 0,
+                'fee_ppm': 1000,
+                'cltv_delta': 144,
+                'min_htlc_sat': 100_000,
+                'mempool_fee_rec': 'fastestFee',
+                'max_sat_per_vbyte': 100,
+            }
+        )
 
-    def test_try_close_empty_sink_channels(self):
-        jobs = SinkSource(mock=True, mock_state={
-            "sink_budget": 375_000_000,
-            "source_budget": 400_000_000,
-            "sink_close_ratio": 0.1,
-            "source_close_ratio": 0.0,
-            "sink_channel_count": 3,
-            "sink_channels_local_sats": 100_000_000,
-            "source_channel_count": 1,
-            "source_account_balance": 0,
-            "num_sink_channels": 3,  # enough sink channels
-            "num_source_channels": 1,
-            "min_onchain_balance": 400_000,
-            "confirmed": 100_000_000,
-            "unconfirmed": 0,
-            "sat_per_vbyte": 1,
-            "HAS_EMPTY_SINK_CHANNELS": True,  # has empty sinks
-            "max_sat_per_vbyte": 100,
-            "source_channels_local_sats": 100_000,
-            "sink_channels_capacity": 375_000_000
-        }).execute()
-        self.assertEqual(jobs, ["TRY_CLOSE_EMPTY_SINK_CHANNELS"])
+    def test_close_empty_channels(self):
+        test_sink_state = SinkNodeState(
+            channels=[
+                ChannelState(
+                    chan_id='test1',
+                    capacity=100_000_000,
+                    local_balance=2_000_000,  # empty channel
+                    local_chan_reserve_sat=1_000_000,
+                ),
+                ChannelState(
+                    chan_id='test2',
+                    capacity=100_000_000,
+                    local_balance=20_000_000,
+                    local_chan_reserve_sat=1_000_000,
+                ),
+                ChannelState(
+                    chan_id='test3',
+                    capacity=100_000_000,
+                    local_balance=20_000_000,
+                    local_chan_reserve_sat=1_000_000,
+                ),
+            ],
+            sat_per_vbyte=10,
+            config=self.test_sink_config
+        )
+        jobs = SinkNodeManager(state=test_sink_state, node=None, log=None, mock=True).get_jobs()
+        self.assertEqual(jobs, ["CLOSE_EMPTY_CHANNELS"])
 
-    def test_try_close_empty_sink_channels_and_drain_source_channels(self):
-        jobs = SinkSource(mock=True, mock_state={
-            "sink_budget": 375_000_000,
-            "source_budget": 400_000_000,
-            "sink_close_ratio": 0.1,
-            "source_close_ratio": 0.0,
-            "sink_channel_count": 3,
-            "sink_channels_local_sats": 100_000_000,
-            "source_channel_count": 1,
-            "source_account_balance": 0,
-            "num_sink_channels": 3,  # enough sink channels
-            "num_source_channels": 1,
-            "min_onchain_balance": 400_000,
-            "confirmed": 100_000_000,
-            "unconfirmed": 0,
-            "sat_per_vbyte": 1,
-            "HAS_EMPTY_SINK_CHANNELS": True,  # has empty sinks
-            "max_sat_per_vbyte": 100,
-            "source_channels_local_sats": 100_000_000,  # has plenty in source channel for loop out
-            "sink_channels_capacity": 375_000_000
-        }).execute()
-        self.assertEqual(jobs, ["TRY_CLOSE_EMPTY_SINK_CHANNELS", "TRY_DRAIN_SOURCE_CHANNEL"])
+    def test_open_channel(self):
+        test_sink_state = SinkNodeState(
+            channels=[  # not enough channels
+                ChannelState(
+                    chan_id='test3',
+                    capacity=100_000_000,
+                    local_balance=20_000_000,
+                    local_chan_reserve_sat=1_000_000,
+                ),
+            ],
+            sat_per_vbyte=10,
+            config=self.test_sink_config
+        )
+        jobs = SinkNodeManager(state=test_sink_state, node=None, log=None, mock=True).get_jobs()
+        self.assertEqual(jobs, ["OPEN_CHANNEL"])
 
-    def test_try_open_source_channel(self):
-        jobs = SinkSource(mock=True, mock_state={
-            "sink_budget": 375_000_000,
-            "source_budget": 400_000_000,
-            "sink_close_ratio": 0.1,
-            "source_close_ratio": 0.0,
-            "sink_channel_count": 3,
-            "sink_channels_local_sats": 100_000_000,
-            "source_channel_count": 1,
-            "source_account_balance": 0,
-            "num_sink_channels": 3,
-            "num_source_channels": 0,  # not enough source channels
-            "min_onchain_balance": 400_000,
-            "confirmed": 500_000_000,  # plenty of sats confirmed
-            "unconfirmed": 0,
-            "sat_per_vbyte": 1,
-            "HAS_EMPTY_SINK_CHANNELS": False,
-            "max_sat_per_vbyte": 100,
-            "source_channels_local_sats": 100_000_000,
-            "sink_channels_capacity": 375_000_000
-        }).execute()
-        self.assertEqual(jobs, ["TRY_OPEN_SOURCE_CHANNEL"])
 
-    def test_try_open_sink_channel(self):
-        jobs = SinkSource(mock=True, mock_state={
-            "sink_budget": 375_000_000,
-            "source_budget": 400_000_000,
-            "sink_close_ratio": 0.1,
-            "source_close_ratio": 0.0,
-            "sink_channel_count": 3,
-            "sink_channels_local_sats": 10_000_000,
-            "source_channel_count": 1,
-            "source_account_balance": 0,
-            "num_sink_channels": 1,  # not enough sink channels
-            "num_source_channels": 1,
-            "min_onchain_balance": 400_000,
-            "confirmed": 200_000_000,  # plenty of confirmed funds for new channel
-            "unconfirmed": 0,
-            "sat_per_vbyte": 1,
-            "max_sat_per_vbyte": 100,
-            "HAS_EMPTY_SINK_CHANNELS": False,
-            "source_channels_local_sats": 100_000_000,
-            "sink_channels_capacity": 375_000_000
-        }).execute()
-        self.assertEqual(jobs, ["TRY_OPEN_SINK_CHANNEL"])
+class TestSourceChannelManager(unittest.TestCase):
+    def __init__(self):
+        self.test_source_config = SourceNodeConfig(
+            config={
+                'pubkey': 'testpubkeyanythingworkscauseitsatest',
+                'host': '127.0.0.1:9385',
+                'capacity': 100_000_000,
+                'num_channels': 1,
+                'base_fee': 0,
+                'fee_ppm': 1000,
+                'cltv_delta': 144,
+                'min_htlc_sat': 100_000,
+                'swap_method': 'kraken',
+                'loop_out_amount': 10_000_000,
+                'loop_out_backoff': 0.93,
+                'max_account_balance': 50_000_000,
+                'mempool_fee_rec': 'fastestFee',
+                'max_sat_per_vbyte': 100,
+            }
+        )
 
-    def test_try_drain_source_channel(self):
-        jobs = SinkSource(mock=True, mock_state={
-            "sink_budget": 375_000_000,
-            "source_budget": 400_000_000,
-            "sink_close_ratio": 0.1,
-            "source_close_ratio": 0.0,
-            "sink_channel_count": 3,
-            "sink_channels_local_sats": 100_000_000,
-            "source_channel_count": 1,
-            "source_account_balance": 0,
-            "num_sink_channels": 2,  # not enough sink channels
-            "num_source_channels": 1,
-            "min_onchain_balance": 400_000,
-            "confirmed": 100_000_000,
-            "unconfirmed": 0,
-            "sat_per_vbyte": 1,
-            "max_sat_per_vbyte": 100,
-            "HAS_EMPTY_SINK_CHANNELS": False,
-            "source_channels_local_sats": 200_000_000,  # plenty of sats in source channels
-            "sink_channels_capacity": 375_000_000
-        }).execute()
-        self.assertEqual(jobs, ["TRY_DRAIN_SOURCE_CHANNEL"])
+    def test_open_channel(self):
+        test_source_state = SourceNodeState(
+            channels=[],  # not enough sources
+            sat_per_vbyte=10,
+            account_balance=0,
+            config=self.test_source_config,
+            swap_method=SwapMethod()
+        )
+        jobs = SourceNodeManager(state=test_source_state, node=None, log=None, mock=True).get_jobs()
+        self.assertEqual(jobs, ['OPEN_CHANNEL'])
 
-    def test_try_harvest_sink_channels(self):
-        jobs = SinkSource(mock=True, mock_state={
-            "sink_budget": 375_000_000,
-            "source_budget": 400_000_000,
-            "sink_close_ratio": 0.1,
-            "source_close_ratio": 0.0,
-            "sink_channel_count": 3,
-            "sink_channels_local_sats": 500_000_000,  # sink channels have plenty of sats
-            "source_channel_count": 1,
-            "source_account_balance": 0,
-            "num_sink_channels": 5,  # plenty of sink channels
-            "num_source_channels": 0, # not enough source channels
-            "min_onchain_balance": 400_000,
-            "confirmed": 100_000_000,
-            "unconfirmed": 0,
-            "sat_per_vbyte": 1,
-            "max_sat_per_vbyte": 100,
-            "HAS_EMPTY_SINK_CHANNELS": False,
-            "source_channels_local_sats": 10_000_000,
-            "sink_channels_capacity": 375_000_000
-        }).execute()
-        self.assertEqual(jobs, ["TRY_HARVEST_SINK_CHANNELS"])
+    def test_drain_channels(self):
+        test_source_state = SourceNodeState(
+            channels=[
+                ChannelState(
+                    chan_id='test3',
+                    capacity=100_000_000,
+                    local_balance=20_000_000,  # balance > loop_out_amount
+                    local_chan_reserve_sat=1_000_000,
+                ),
+            ],
+            sat_per_vbyte=10,
+            account_balance=0,
+            config=self.test_source_config,
+            swap_method=SwapMethod()
+        )
+        jobs = SourceNodeManager(state=test_source_state, node=None, log=None, mock=True).get_jobs()
+        self.assertEqual(jobs, ['DRAIN_CHANNELS'])
 
-    def test_source_account_send_onchain(self):
-        jobs = SinkSource(mock=True, mock_state={
-            "sink_budget": 375_000_000,
-            "source_budget": 400_000_000,
-            "sink_close_ratio": 0.1,
-            "source_close_ratio": 0.0,
-            "sink_channel_count": 3,
-            "sink_channels_local_sats": 10_000_000,
-            "source_channel_count": 1,
-            "source_account_balance": 125_000_000,  # plenty of sats in account
-            "num_sink_channels": 2,  # not enough sink channels
-            "num_source_channels": 1,
-            "min_onchain_balance": 400_000,
-            "confirmed": 100_000_000,  # not enough confirmed
-            "unconfirmed": 0,
-            "sat_per_vbyte": 1,
-            "max_sat_per_vbyte": 100,
-            "HAS_EMPTY_SINK_CHANNELS": False,
-            "source_channels_local_sats": 100_000_000,
-            "sink_channels_capacity": 375_000_000
-        }).execute()
-        self.assertEqual(jobs, ["SOURCE_ACCOUNT_SEND_ONCHAIN"])
+    def test_account_send_onchain(self):
+        test_source_state = SourceNodeState(
+            channels=[
+                ChannelState(
+                    chan_id='test3',
+                    capacity=100_000_000,
+                    local_balance=8_000_000,
+                    local_chan_reserve_sat=1_000_000,
+                ),
+            ],
+            sat_per_vbyte=10,
+            account_balance=50_100_000,  # balance > max_account_balance
+            config=self.test_source_config,
+            swap_method=SwapMethod()
+        )
+        jobs = SourceNodeManager(state=test_source_state, node=None, log=None, mock=True).get_jobs()       
+        self.assertEqual(jobs, ['ACCOUNT_SEND_ONCHAIN'])
 
 
 if __name__ == '__main__':

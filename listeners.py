@@ -1,14 +1,28 @@
 import time
 import csv
 import traceback
-from report import Report
-from mempool import Mempool
+from mempool import Mempool, MempoolCreds
+from notify import Logger
+from lnd import Lnd
+
+
+class FundingListenerConfig:
+    def __init__(self, onchain_deposit: str, onchain_send: str, channel_open_broadcast: str, channel_open_confirmed: str, channel_open_active: str, channel_close_broadcast: str, channel_close_confirmed: str, ln_payment_sent: str, ln_invoice_paid: str):
+        self.onchain_deposit = bool(onchain_deposit)
+        self.onchain_send = bool(onchain_send)
+        self.channel_open_broadcast = bool(channel_open_broadcast)
+        self.channel_open_confirmed = bool(channel_open_confirmed)
+        self.channel_open_active = bool(channel_open_active)
+        self.channel_close_broadcast = bool(channel_close_broadcast)
+        self.channel_close_confirmed = bool(channel_close_confirmed)
+        self.ln_payment_sent = bool(ln_payment_sent)
+        self.ln_invoice_paid = bool(ln_invoice_paid)
 
 
 class FundingListener:
     """Get notificatinos when the node sends/recieves funds"""
 
-    def __init_(self, config, CREDS, node, log):
+    def __init_(self, config: FundingListenerConfig, _, node: Lnd, log: Logger):
         self.tg = log.notify_connector
         self.node = node
         self.onchain_deposit = config['onchain_deposit']
@@ -26,22 +40,28 @@ class FundingListener:
             time.sleep(30)
 
 
+class MempoolListenerConfig:
+    def __init__(self, on_mempool_empty: str, mempool_empty_mb: str, on_mempool_change: str, mempool_delta_mb: str, on_channel_confirmed: str):
+        self.on_mempool_empty = bool(on_mempool_empty)
+        self.mempool_empty_mb = int(mempool_empty_mb)
+        self.on_mempool_change = bool(on_mempool_change)
+        self.mempool_delta_mb = int(mempool_delta_mb)
+        self.on_channel_confirmed = bool(on_channel_confirmed) 
+
+
 class MempoolListener:
     """
     Get notifications about mempool activity
     """
 
-    def __init__(self, config, CREDS, node, log):
+    def __init__(self, config: MempoolListenerConfig, CREDS: dict, node: Lnd, log: Logger):
         self.tg = log.notify_connector
         self.node = node
-        self.mempool = Mempool(CREDS['MEMPOOL'], log)
+        self.config = config
+        self.mempool = Mempool(MempoolCreds(api_url=CREDS['MEMPOOL']['api_url']), log)
         self.bytes = self.get_bytes()
         self.last_notify_bytes = None
-        self.on_mempool_empty = bool(config['on_mempool_empty'])
-        self.mempool_empty_mb = int(config['mempool_empty_mb'])
-        self.on_mempool_change = int(config['on_mempool_change'])
-        self.mempool_delta_mb = int(config['mempool_delta_mb'])
-        self.on_channel_confirmed = bool(config['on_channel_confirmed'])
+        self.pending_channels = self.get_pending_channels()
 
     def get_bytes(self):
         bytes = self.mempool.get_mempool_bytes()
@@ -49,7 +69,7 @@ class MempoolListener:
         return bytes
 
     def get_pending_channels(self):
-        pending_channels = node.get_pending_channel_open_tx_ids()
+        pending_channels = self.node.get_pending_channel_open_tx_ids()
         self.pending_channels = pending_channels
         return pending_channels
 
@@ -59,83 +79,35 @@ class MempoolListener:
             # get latest bytes
             self.get_bytes()
             mb = round(bytes/MB_BYTES, 2)
-            if self.on_mempool_empty:
-                if mb < self.empty_mb and not self.last_notify_bytes/MB_BYTES < self.empty_mb:
+            if self.config.on_mempool_empty:
+                if mb < self.config.mempool_empty_mb and not self.last_notify_bytes/MB_BYTES < self.empty_mb:
                     self.last_notify_bytes = bytes
                     self.tg.send_message(f"🫗  Mempool is good as empty! Currently {mb}MB")
-            elif self.on_mempool_change:
-                if mb > ((self.last_notify_bytes/MB_BYTES) + self.mempool_delta_mb):
+            elif self.config.on_mempool_change:
+                if mb > ((self.last_notify_bytes/MB_BYTES) + self.config.mempool_delta_mb):
                     self.last_notify_bytes = bytes
                     self.tg.send_message(f"⬆️  Mempool growing! Currently {mb}MB")
-                elif mb < ((self.last_notify_bytes/MB_BYTES) - self.delta_mb):
+                elif mb < ((self.last_notify_bytes/MB_BYTES) - self.config.mempool_delta_mb):
                     self.last_notify_bytes = bytes
                     self.tg.send_message(f"⬇️  Mempool shrinking! Currently {mb}MB")
-            elif self.on_channel_confirmed:
+            elif self.config.on_channel_confirmed:
                 for channel in self.pending_channels:
-                    tx_status = mp.check_tx(chan.chanel_point.split(":")[0])
+                    tx_status = self.mempool.check_tx(channel.chanel_point.split(":")[0])
                     if tx_status["confirmed"]:
                         conf_block_height = int(tx_status["block_height"])
-                        tip = int(mp.get_tip_height())
+                        tip = int(self.mempool.get_tip_height())
                         diff = tip - conf_block_height + 1
                         if diff == 0:
                             self.tg.send_message(f"✅ Channel confirmed...")
                         elif diff == 6:
                             self.tg.send_message(f"✅ Channel active...")
 
-class TelegramListener:
-    """
-    Used when Telegram needs to send a message at regular interval (as opposed to on the fly)
-        or when Telegram needs to respond to user commands
-    """
 
-    def __init__(self, config, CREDS, node, log):
-        self.tg = log.notify_connector
-        self.node = node
-        self.report = Report(CREDS, node, log)
-        self.daily_report = config['daily_report']
-        self.daily_report_hour = int(config['daily_report_hour'])
-        self.daily_report_min = int(config['daily_report_min'])
-        actions = config['actions'].split(' ')
-        self.actions = {
-                "invoice": {
-                    "permission": "invoice" in actions,
-                    "parse_args": lambda msg: (msg.split(' ')[1], " ".join(msg.split(' ')[1:])),
-                    "action": lambda args: self.tg.send_message(f"{self.node.add_lightning_invoice(args[0], args[1])}")
-                },
-                "report": {
-                    "permission": "report" in actions,
-                    "action": self.report.send_report
-                }
-        }
-
-    def mainLoop(self):
-        #self.report.send_report()
-        while True:
-            if self.daily_report:
-                self.daily_report_check_send()
-            self.handle_updates()
-            time.sleep(5)
-
-    def daily_report_check_send(self):
-        current_time = time.localtime()
-        if current_time.tm_hour == self.daily_report_hour and \
-                current_time.tm_min == self.daily_report_min:
-            self.report.send_report()
-
-    def handle_updates(self):
-        updates = self.tg.get_updates()
-        for update in updates:
-            msg = update['message']['text']
-            self.tg.ack_update(update['update_id'])
-            for action in self.actions:
-                if msg.startswith(f"/{action}"):
-                    if self.actions[action]['permission']:
-                        if self.actions[action]['parse_args']:
-                            self.actions[action]['action'](self.actions[action]['parse_args'])
-                        else:
-                            self.actions[action]['action']()
-                    else:
-                        self.tg.send_message(f"/{action} is not an allowed action")
+class HtlcStreamLoggerConfig:
+    def __init__(self, csv_file: str, log_to_console: bool, notify_events: str):
+        self.csv_file = csv_file
+        self.log_to_console = log_to_console
+        self.notify_events = notify_events.split(' ')
 
 
 class HtlcStreamLogger:
@@ -143,16 +115,14 @@ class HtlcStreamLogger:
     Monitor and store HTLCs as they sream across your node. 
         Optional notify telegram on forwards, sends, etc.
     """
-    def __init__(self, config, CREDS, node, log):
+    def __init__(self, config: HtlcStreamLoggerConfig, _, node: Lnd, log: Logger):
         self.log = log
         self.node = node
+        self.config = config
         self.mychannels = {}
         self.lastchannelfetchtime = 0
         self.chandatatimeout = 15
         self.forward_event_cache = {}
-        self.csv_file = config['csv_file']
-        self.log_to_console = ['log_to_console']
-        self.notify_events = config['notify_events'].split(' ')
 
     def getChanInfo(self, chanid):
         """
@@ -311,18 +281,18 @@ class HtlcStreamLogger:
                 elif outcome == 'settle_event':
                     note = '✅'
 
-                if self.notify_events:
-                    if "forwards" in self.notify_events:
+                if self.config.notify_events:
+                    if "forwards" in self.config.notify_events:
                         if eventtype == "FORWARD" and "successful" in note:
                             fee_ppm = "--"
                             if (isinstance(fee, float) or isinstance(fee, int)) and (isinstance(amount, float) or isinstance(amount, int)):
                                 fee_ppm = round((fee/amount) * 1_000_000)
                             self.log.notify(f"✅ FORWARD {inalias} ➜ {outalias} for {fee} \[{fee_ppm}]")
-                    elif "sends" in self.notify_events:
+                    elif "sends" in self.config.notify_events:
                         if eventtype == "SEND" and outcome == "settle_event":
                             self.log.notify(f"✅ SEND {amount} out {outalias} for {fee}")
 
-                if self.log_to_console:
+                if self.config.log_to_console:
                     print(eventtype,
                         in_htlc_id, out_htlc_id,
                         timetext, amount,'for', fee,
@@ -335,7 +305,7 @@ class HtlcStreamLogger:
                         note,
                             )
 
-                with open(self.csv_file, 'a', newline='') as f:
+                with open(self.config.csv_file, 'a', newline='') as f:
                     writer = csv.writer(f)
 
                     if i % 30 == 0:
